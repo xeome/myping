@@ -52,6 +52,7 @@ void Pinger::init() {
     std::strncpy(ifr.ifr_name, interface_.c_str(), IFNAMSIZ - 1);
     if (ioctl(sockfd_, SIOCGIFHWADDR, &ifr) < 0) {
         LOG_F(ERROR, "Failed to get mac address: %s", std::strerror(errno));
+        return;
     }
 
     LOG_F(INFO, "Got mac: %02X:%02X:%02X:%02X:%02X:%02X for egresss interface: %s", static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[0]),
@@ -70,6 +71,7 @@ void Pinger::init() {
     std::strncpy(ifr_ip.ifr_name, interface_.c_str(), IFNAMSIZ - 1);
     if (ioctl(sockfd_, SIOCGIFADDR, &ifr_ip) < 0) {
         LOG_F(ERROR, "Failed to get IP address: %s", std::strerror(errno));
+        return;
     }
     source_ip_ = inet_ntoa(reinterpret_cast<struct sockaddr_in*>(&ifr_ip.ifr_addr)->sin_addr);
     LOG_F(INFO, "Got IP: %s for egress interface: %s", source_ip_.c_str(), interface_.c_str());
@@ -88,7 +90,21 @@ void Pinger::send_ping(std::string target_ip) {
 
     eth->h_proto = htons(ETH_P_IP);
     std::memcpy(eth->h_source, socket_address_->sll_addr, ETH_ALEN);
-    std::memset(eth->h_dest, 0xFF, ETH_ALEN);
+
+    // get MAC address of target IP using system arp table, SIOCGARP
+    struct arpreq arpreq = {};
+    std::strncpy(arpreq.arp_dev, interface_.c_str(), IFNAMSIZ - 1);
+    struct sockaddr_in* target_ip_addr = reinterpret_cast<struct sockaddr_in*>(&arpreq.arp_pa);
+    target_ip_addr->sin_family = AF_INET;
+    target_ip_addr->sin_addr.s_addr = inet_addr(target_ip.c_str());
+    if (ioctl(sockfd_, SIOCGARP, &arpreq) < 0) {
+        LOG_F(ERROR, "Failed to get MAC address of target IP: %s", std::strerror(errno));
+    }
+    std::memcpy(eth->h_dest, arpreq.arp_ha.sa_data, ETH_ALEN);
+    LOG_F(INFO, "Got MAC: %02X:%02X:%02X:%02X:%02X:%02X", static_cast<unsigned char>(eth->h_dest[0]),
+          static_cast<unsigned char>(eth->h_dest[1]), static_cast<unsigned char>(eth->h_dest[2]),
+          static_cast<unsigned char>(eth->h_dest[3]), static_cast<unsigned char>(eth->h_dest[4]),
+          static_cast<unsigned char>(eth->h_dest[5]));
 
     ip->ihl = 5;
     ip->version = 4;
@@ -128,7 +144,7 @@ void Pinger::receive_ping() {
         LOG_F(ERROR, "Failed to receive packet: %s", std::strerror(errno));
     }
 
-    struct ethhdr* eth = reinterpret_cast<struct ethhdr*>(buffer);
+    const struct ethhdr* eth = reinterpret_cast<struct ethhdr*>(buffer);
     if (eth->h_proto != htons(ETH_P_IP)) {
         delete[] buffer;
         return;
@@ -141,11 +157,14 @@ void Pinger::receive_ping() {
         return;
     }
 
-    struct icmphdr* icmp = reinterpret_cast<struct icmphdr*>(buffer + sizeof(struct ethhdr) + sizeof(struct iphdr));
+    const struct icmphdr* icmp = reinterpret_cast<struct icmphdr*>(buffer + sizeof(struct ethhdr) + sizeof(struct iphdr));
 
-    if (icmp->type == ICMP_ECHOREPLY) {
-        LOG_F(INFO, "Received ICMP echo reply from: %s", inet_ntoa(*reinterpret_cast<struct in_addr*>(&ip->saddr)));
+    if (icmp->type != ICMP_ECHOREPLY) {
+        LOG_F(ERROR, "Didn't receive ICMP echo reply");
+        delete[] buffer;
+        return;
     }
+    LOG_F(INFO, "Received ICMP echo reply from: %s", inet_ntoa(*reinterpret_cast<struct in_addr*>(&ip->saddr)));
 
     delete[] buffer;
 }
