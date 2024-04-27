@@ -7,7 +7,6 @@
 #include "pinger.hpp"
 
 int main(int argc, char** argv) {
-    loguru::init(argc, argv);
     cxxopts::Options options("myping", "custom ping tool for learning purposes");
     cxxopts::ParseResult result;
 
@@ -27,6 +26,8 @@ int main(int argc, char** argv) {
         LOG_F(ERROR, "Failed to initialize options");
         return EXIT_FAILURE;
     }
+
+    loguru::init(argc, argv);
 
     LOG_F(INFO, "Egress interface: %s", result["dev"].as<std::string>().c_str());
     LOG_F(INFO, "Number of packets to send: %d", result["count"].as<int>());

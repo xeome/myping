@@ -12,15 +12,21 @@ int init_options(const int argc, char** argv, cxxopts::Options& options, cxxopts
         exit(EXIT_SUCCESS);
     }
 
+    if (result.arguments().empty()) {
+        std::cout << options.help() << std::endl;
+        exit(EXIT_SUCCESS);
+    }
+
     if (!result.count("dev")) {
         LOG_F(ERROR, "Egress interface is required");
         LOG_F(ERROR, "Use -h or --help for usage");
         exit(EXIT_FAILURE);
     }
 
-    if (result.arguments().empty()) {
-        std::cout << options.help() << std::endl;
-        exit(EXIT_SUCCESS);
+    if (!result.count("target")) {
+        LOG_F(ERROR, "Target IP address is required");
+        LOG_F(ERROR, "Use -h or --help for usage");
+        exit(EXIT_FAILURE);
     }
 
     return 0;
