@@ -1,4 +1,4 @@
-#include <cstdlib>
+#include <cassert>
 #include <cstring>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
@@ -73,14 +73,21 @@ void Pinger::init() {
         LOG_F(ERROR, "Failed to get IP address: %s", std::strerror(errno));
         return;
     }
-    source_ip_ = inet_ntoa(reinterpret_cast<struct sockaddr_in*>(&ifr_ip.ifr_addr)->sin_addr);
-    LOG_F(INFO, "Got IP: %s for egress interface: %s", source_ip_.c_str(), interface_.c_str());
 
+    source_ip_ = inet_ntoa(reinterpret_cast<struct sockaddr_in*>(&ifr_ip.ifr_addr)->sin_addr);
+
+    assert(!source_ip_.empty());
+    assert(!interface_.empty());
+    assert(sockfd_ != -1);
+    assert(socket_address_ != nullptr);
+
+    LOG_F(INFO, "Got IP: %s for egress interface: %s", source_ip_.c_str(), interface_.c_str());
     LOG_F(INFO, "Pinger initialized successfully");
 }
 
-void Pinger::send_ping(std::string target_ip) {
+void Pinger::send_ping(const std::string& target_ip) {
     LOG_SCOPE_F(INFO, "Sending ICMP echo request to: %s", target_ip.c_str());
+
     char* packet = new char[packet_size_];
     std::memset(packet, 0, packet_size_);
 
@@ -91,7 +98,7 @@ void Pinger::send_ping(std::string target_ip) {
     eth->h_proto = htons(ETH_P_IP);
     std::memcpy(eth->h_source, socket_address_->sll_addr, ETH_ALEN);
 
-    // get MAC address of target IP using system arp table, SIOCGARP
+    // Get MAC address of target IP
     struct arpreq arpreq = {};
     std::strncpy(arpreq.arp_dev, interface_.c_str(), IFNAMSIZ - 1);
     struct sockaddr_in* target_ip_addr = reinterpret_cast<struct sockaddr_in*>(&arpreq.arp_pa);
@@ -100,6 +107,7 @@ void Pinger::send_ping(std::string target_ip) {
     if (ioctl(sockfd_, SIOCGARP, &arpreq) < 0) {
         LOG_F(ERROR, "Failed to get MAC address of target IP: %s", std::strerror(errno));
     }
+
     std::memcpy(eth->h_dest, arpreq.arp_ha.sa_data, ETH_ALEN);
     LOG_F(INFO, "Got MAC: %02X:%02X:%02X:%02X:%02X:%02X", static_cast<unsigned char>(eth->h_dest[0]),
           static_cast<unsigned char>(eth->h_dest[1]), static_cast<unsigned char>(eth->h_dest[2]),
@@ -134,6 +142,7 @@ void Pinger::send_ping(std::string target_ip) {
 
 void Pinger::receive_ping() {
     LOG_SCOPE_F(INFO, "Receiving ICMP echo reply");
+
     char* buffer = new char[packet_size_];
     std::memset(buffer, 0, packet_size_);
 

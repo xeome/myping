@@ -1,3 +1,5 @@
+#pragma once
+
 #include <sys/socket.h>
 #include <linux/if_packet.h>
 #include <netinet/if_ether.h>
@@ -15,7 +17,7 @@ class Pinger {
     }
 
     void init();
-    void send_ping(std::string target_ip);
+    void send_ping(const std::string& target_ip);
     void receive_ping();
     void close();
 
